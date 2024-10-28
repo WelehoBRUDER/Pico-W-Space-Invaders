@@ -19,40 +19,52 @@ screen = SSD1306_I2C(screen_width, screen_height, i2c)
 screen.fill(0)
 player_model = bytearray([0x30, 0x38, 0x28, 0x28, 0x14, 0x1F, 0x14, 0x28, 0x28, 0x38, 0x30]) # player sprite as a bytemap
 alien_model = bytearray([0x60, 0x12, 0x79, 0x56, 0x1C, 0x1C, 0x56, 0x79, 0x12, 0x60]) # alien sprite as a bytemap
+alien_death_model = bytearray([0x24, 0x52, 0x09, 0x10, 0x45, 0x20, 0x15, 0x22, 0x44, 0x28]) # alien sprite when pew pew hit
 
 alien_sprite = framebuf.FrameBuffer(alien_model, alien_width, alien_height, framebuf.MONO_VLSB) # create image of alien sprite
+alien_death_sprite = framebuf.FrameBuffer(alien_death_model, alien_width, alien_height, framebuf.MONO_VLSB) # create image of ded alien sprite
 class Alien:
     def __init__(self, x, y, width, height):
         self.x = x
         self.y = y
-        self.speed = 10
+        self.speed = 7
         self.width = width
         self.height = height
         self.index = 0
         self.bullet_speed = 1
+        self.alive = True
+        self.death_timer = 1
         
         
     def speed_adj(self): # Mimic difficulty of OG space invaders, the fewer enemies, the faster they move.
         return self.speed / len(GAME.enemies) # Use fewer when what you're talking about can be counted, and less if it can't be. (Stannis)
 
     def move(self):
+        if not self.alive:
+            self.death_timer -= 1 / 8
+            if self.death_timer <= 0:
+                GAME.enemies.pop(self.index)
+            return  
         self.x += self.speed_adj() # Move by the difficulty adjusted speed
         if self.x + self.width > screen_width: # Once an alien reaches the edge of the screen, it goes down by 1 length.
             self.x = 0
             self.y += self.height
         
         if self.y >= screen_height - PLAYER.height * 2: # If the alien reaches the player, remove life from player and kill alien
-            PLAYER.life -= 1
+            PLAYER.life -= 5
             self.destroy(p_kill = False)
             
         if random.randint(1, 500) == 500:
             self.shoot()
     
     def draw(self): # Draw alien at its current position
-        screen.blit(alien_sprite, int(self.x), int(self.y))
+        if self.alive:
+            screen.blit(alien_sprite, int(self.x), int(self.y))
+        else:
+            screen.blit(alien_death_sprite, int(self.x), int(self.y))
     
     def destroy(self, p_kill = True): # Remove the alien from the game and increase player's score if killed by bullet
-        GAME.enemies.pop(self.index)
+        self.alive = False
         if p_kill:
             GAME.score += 25
             
@@ -75,9 +87,11 @@ class Player:
         self.mov_speed = mov_speed
         self.bullet_speed = bullet_speed
         self.sprite = framebuf.FrameBuffer(player_model, self.width, self.height, framebuf.MONO_VLSB) # create image of player sprite
+        self.invulnerable = 0
     
     def draw(self):
-        screen.blit(self.sprite, int(self.x), int(self.y)) # draw sprite on player location
+        if self.invulnerable % 2 == 0:
+            screen.blit(self.sprite, int(self.x), int(self.y)) # draw sprite on player location
     
     def move(self, amnt):
         # Check if the player touches either side of the screen
@@ -105,6 +119,14 @@ class Player:
         spawn_y = screen_height - self.height # Find where the bullet should spawn at on y axis
         GAME.bullets.append(Bullet(spawn_x, spawn_y, self.bullet_speed, len(GAME.bullets), direction = -1)) # Create new Bullet instance
         
+    def invulnerability(self):
+        if self.invulnerable > 0:
+            self.invulnerable -= 1
+            
+    def hurt(self):
+        if self.invulnerable <= 0:
+            self.life -= 1
+            self.invulnerable = 100
 
 
 class Bullet:
@@ -132,7 +154,7 @@ class Bullet:
         if self.direction > 0:
             # This line of code checks if a bullet is colliding with the player's bounding box
             if self.x >= PLAYER.x and self.x <= PLAYER.x + PLAYER.width and self.y <= PLAYER.y and self.y >= PLAYER.y - PLAYER.height:
-                PLAYER.life -= 1
+                PLAYER.hurt()
                 self.destroy()
         else:
             for i in range(len(GAME.enemies)):
@@ -205,6 +227,7 @@ class Game:
     def game_loop(self):
         screen.fill(0)
         PLAYER.controls()
+        PLAYER.invulnerability()
         PLAYER.draw()
         # Loop through each bullet and apply its per tick methods
         # The looping is done in reverse because the list is being modified during it.
@@ -234,7 +257,7 @@ while True:
     if(len(GAME.enemies) == 0 or PLAYER.life == 0):
         break
     
-if PLAYER.life == 0:
+if PLAYER.life <= 0:
     GAME.lose_screen()
 else:
     GAME.win_screen()
