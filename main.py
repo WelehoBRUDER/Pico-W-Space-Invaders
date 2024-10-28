@@ -2,6 +2,7 @@ from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 from math import ceil
 import framebuf
+import random
 
 i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
 screen_width = 128
@@ -28,6 +29,7 @@ class Alien:
         self.width = width
         self.height = height
         self.index = 0
+        self.bullet_speed = 1
         
         
     def speed_adj(self): # Mimic difficulty of OG space invaders, the fewer enemies, the faster they move.
@@ -42,6 +44,9 @@ class Alien:
         if self.y >= screen_height - PLAYER.height * 2: # If the alien reaches the player, remove life from player and kill alien
             PLAYER.life -= 1
             self.destroy(p_kill = False)
+            
+        if random.randint(1, 500) == 500:
+            self.shoot()
     
     def draw(self): # Draw alien at its current position
         screen.blit(alien_sprite, int(self.x), int(self.y))
@@ -50,6 +55,12 @@ class Alien:
         GAME.enemies.pop(self.index)
         if p_kill:
             GAME.score += 25
+            
+    def shoot(self):
+        own_center = ceil(self.width / 2) # Get center of alien model
+        spawn_x = int(self.x + own_center) # Find where the bullet should spawn at on x axis
+        spawn_y = int(self.y + self.height) # Find where the bullet should spawn at on y axis
+        GAME.bullets.append(Bullet(spawn_x, spawn_y, self.bullet_speed, len(GAME.bullets), direction = 1)) # Create new Bullet instance
 
 
 class Player:
@@ -90,22 +101,24 @@ class Player:
             return
         self.shoot_cd = 10 # Cooldown 10 means that you can shoot once every ~17 frames.
         own_center = ceil(self.width / 2) # Get center of player model
-        spawn_point = self.x + own_center # Find where the bullet should spawn at
-        GAME.bullets.append(Bullet(spawn_point, self.bullet_speed, len(GAME.bullets))) # Create new Bullet instance
+        spawn_x = self.x + own_center # Find where the bullet should spawn at on x axis
+        spawn_y = screen_height - self.height # Find where the bullet should spawn at on y axis
+        GAME.bullets.append(Bullet(spawn_x, spawn_y, self.bullet_speed, len(GAME.bullets), direction = -1)) # Create new Bullet instance
         
 
 
 class Bullet:
-    def __init__(self, x, speed, index):
+    def __init__(self, x, y, speed, index, direction):
         self.x = x
-        self.y = screen_height - PLAYER.height
+        self.y = y
         self.speed = speed
         self.index = index
+        self.direction = direction
     
     # Moves the bullet up (-y) by 1 pixel per frame.
     def move(self):
-        self.y -= self.speed # since going up means lowering y position, y-pos needs to be decremented by speed
-        if self.y <= 0: # mark the bullet for destruction when it hits the edge of the screen
+        self.y += self.speed * self.direction # direction is either +1 or -1
+        if self.y <= 0 or self.y >= screen_height: # mark the bullet for destruction when it hits the edge of the screen
             self.destroy()
             
     # Draws the bullet as a single pixel in its current position
@@ -116,13 +129,24 @@ class Bullet:
         GAME.bullets.pop(self.index)
         
     def check_collision(self):
-        for i in range(len(GAME.enemies)):
-            # This gargantuan line of code checks if the bullet is inside the enemy's bounding box
-            # The enemy can for example occupy a space of x = [5, 12] y = [23, 28]
-            # if the bullet is then eg. x = 7 and y = 25, it is within the enemy's bounding box
-            # and thus collides with the enemy
-            if self.x >= GAME.enemies[i].x and self.x <= GAME.enemies[i].x + GAME.enemies[i].width and self.y <= GAME.enemies[i].y and self.y >= GAME.enemies[i].y - GAME.enemies[i].height:
-                GAME.enemies[i].destroy()
+        if self.direction > 0:
+            # This line of code checks if a bullet is colliding with the player's bounding box
+            if self.x >= PLAYER.x and self.x <= PLAYER.x + PLAYER.width and self.y <= PLAYER.y and self.y >= PLAYER.y - PLAYER.height:
+                PLAYER.life -= 1
+                self.destroy()
+        else:
+            for i in range(len(GAME.enemies)):
+                # This gargantuan line of code checks if the bullet is inside the enemy's bounding box
+                # The enemy can for example occupy a space of x = [5, 12] y = [23, 28]
+                # if the bullet is then eg. x = 7 and y = 25, it is within the enemy's bounding box
+                # and thus collides with the enemy
+                if self.x >= GAME.enemies[i].x and self.x <= GAME.enemies[i].x + GAME.enemies[i].width and self.y <= GAME.enemies[i].y and self.y >= GAME.enemies[i].y - GAME.enemies[i].height:
+                    GAME.enemies[i].destroy()
+                    self.destroy()
+                    break
+        for i in range(len(GAME.bullets)):
+            if self.x == GAME.bullets[i].x and (self.y + 1 == GAME.bullets[i].y or self.y - 1 == GAME.bullets[i].y):
+                GAME.bullets[i].destroy()
                 self.destroy()
                 break
     
@@ -202,8 +226,8 @@ class Game:
         self.draw_ui()
         screen.show()
         
-PLAYER = Player(0, 11, 6, 5, 0.6, 1, 1)
-GAME = Game(24)
+PLAYER = Player(x = 0, width = 11, height = 6, life = 5, shoot_speed = 0.6, mov_speed = 1, bullet_speed = 2)
+GAME = Game(16)
 
 while True:
     GAME.game_loop()
